@@ -67,7 +67,14 @@
 
   <section id="screen-backup">
     <h2>3. 저장·백업</h2>
-    <div class="empty">저장·백업 기능이 여기에 들어갑니다.</div>
+    <p class="hint">매칭 결과는 이 브라우저에 자동 저장됩니다(키 <code>m5_notice_match</code>). 다른 PC로 옮기거나 백업하려면 JSON 파일을 쓰세요.</p>
+    <p>
+      <button type="button" id="btn-export">JSON 내보내기</button>
+      <button type="button" id="btn-import">JSON 가져오기</button>
+      <input type="file" id="file-import" accept=".json,application/json" hidden>
+    </p>
+    <p class="error" id="error-backup" role="alert"></p>
+    <p class="hint" id="backup-status"></p>
   </section>
 </main>
 
@@ -298,6 +305,48 @@ if (typeof document !== 'undefined') {
   });
   var saved = loadSnapshot();
   if (saved) showSnapshot(saved, '브라우저에 저장된 마지막 결과입니다');
+
+  var backupErr = document.getElementById('error-backup');
+  var backupStatus = document.getElementById('backup-status');
+
+  // 저장값을 JSON 파일로 내려받는다. 외부 요청 없이 Blob 주소만 쓴다.
+  document.getElementById('btn-export').addEventListener('click', function () {
+    backupErr.textContent = ''; backupStatus.textContent = '';
+    var s = loadSnapshot();
+    if (!s) { backupErr.textContent = '내보낼 결과가 없습니다. 먼저 [매칭]을 누르세요.'; return; }
+    var blob = new Blob([JSON.stringify(s, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'm5_notice_match_' + s.savedAt.slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    backupStatus.textContent = a.download + ' 파일을 내보냈습니다.';
+  });
+
+  document.getElementById('btn-import').addEventListener('click', function () {
+    document.getElementById('file-import').click();
+  });
+
+  // 형식이 맞는 JSON만 저장하고 결과 표를 다시 그린다.
+  document.getElementById('file-import').addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    backupErr.textContent = ''; backupStatus.textContent = '';
+    var reader = new FileReader();
+    reader.onload = function () {
+      var s = null;
+      try { s = JSON.parse(String(reader.result)); } catch (err) { s = null; }
+      if (!isValidSnapshot(s)) {
+        backupErr.textContent = '형식이 다른 JSON이라 가져오지 않았습니다. 이 도구의 [JSON 내보내기]로 만든 파일을 넣어 주세요.';
+        return;
+      }
+      if (!saveSnapshot(s)) backupErr.textContent = '브라우저에 저장하지 못했습니다. 새로 고치면 결과가 사라집니다.';
+      showSnapshot(s, file.name + '에서 가져온 결과입니다');
+      backupStatus.textContent = file.name + '을(를) 가져왔습니다.';
+    };
+    reader.readAsText(file, 'UTF-8');
+  });
 }
 </script>
 </body>

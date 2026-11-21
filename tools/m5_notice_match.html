@@ -239,6 +239,46 @@ function renderResult(results) {
   table.appendChild(tbody); wrap.appendChild(table); area.appendChild(wrap);
 }
 
+// PRD 4절: localStorage 키는 이것 하나만 쓴다.
+var STORE_KEY = 'm5_notice_match';
+var STORE_VERSION = 1;
+var RESULT_FIELDS = RESULT_COLS.map(function (c) { return c[1]; });
+
+// 저장 형식: { version, savedAt, notices:{header,rows}, results:[{접수번호,…,상태}] }
+function makeSnapshot(noticesData, results) {
+  return { version: STORE_VERSION, savedAt: new Date().toISOString(),
+    notices: { header: noticesData.header, rows: noticesData.rows }, results: results };
+}
+
+// 형식이 맞는 저장값인지 본다. 맞으면 true.
+function isValidSnapshot(s) {
+  if (!s || typeof s !== 'object' || s.version !== STORE_VERSION) return false;
+  if (!s.notices || !Array.isArray(s.notices.header) || !Array.isArray(s.notices.rows)) return false;
+  if (!Array.isArray(s.results)) return false;
+  return s.results.every(function (r) {
+    return r && typeof r === 'object' && RESULT_FIELDS.every(function (f) { return typeof r[f] === 'string'; });
+  });
+}
+
+function saveSnapshot(s) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); return true; } catch (e) { return false; }
+}
+
+function loadSnapshot() {
+  try {
+    var s = JSON.parse(localStorage.getItem(STORE_KEY));
+    return isValidSnapshot(s) ? s : null;
+  } catch (e) { return null; }
+}
+
+// 저장된 결과를 화면에 다시 그린다. 언제 저장한 것인지 함께 보여 준다.
+function showSnapshot(s, label) {
+  renderResult(s.results);
+  var note = document.createElement('p'); note.className = 'hint'; note.id = 'result-source';
+  note.textContent = label + ' (저장 시각 ' + s.savedAt.replace('T', ' ').slice(0, 19) + ' UTC, 공고 이력 ' + s.notices.rows.length + '행)';
+  document.getElementById('result-area').insertBefore(note, document.getElementById('result-area').firstChild);
+}
+
 if (typeof document !== 'undefined') {
   bindInput('complaints');
   bindInput('notices');
@@ -252,8 +292,12 @@ if (typeof document !== 'undefined') {
       return;
     }
     msg.textContent = '';
-    renderResult(matchComplaints(loaded.complaints, loaded.notices));
+    var snap = makeSnapshot(loaded.notices, matchComplaints(loaded.complaints, loaded.notices));
+    renderResult(snap.results);
+    if (!saveSnapshot(snap)) msg.textContent = '브라우저에 저장하지 못했습니다. 새로 고치면 결과가 사라집니다.';
   });
+  var saved = loadSnapshot();
+  if (saved) showSnapshot(saved, '브라우저에 저장된 마지막 결과입니다');
 }
 </script>
 </body>

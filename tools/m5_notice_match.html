@@ -270,7 +270,7 @@ function makeSnapshot(noticesData, results) {
 
 // 형식이 맞는 저장값인지 본다. 맞으면 true.
 function isValidSnapshot(s) {
-  if (!s || typeof s !== 'object' || s.version !== STORE_VERSION) return false;
+  if (!s || typeof s !== 'object' || s.version !== STORE_VERSION || typeof s.savedAt !== 'string') return false;
   if (!s.notices || !Array.isArray(s.notices.header) || !Array.isArray(s.notices.rows)) return false;
   if (!Array.isArray(s.results)) return false;
   return s.results.every(function (r) {

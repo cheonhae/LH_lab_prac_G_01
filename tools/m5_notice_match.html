@@ -26,6 +26,10 @@
   button { padding:8px 16px; font-size:1rem; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; }
   button:disabled { background:#ccc; border-color:#ccc; color:#666; }
   tr.need-check td { background:var(--warn-bg); }
+  tr.need-check td:first-child { box-shadow:inset 4px 0 0 var(--warn-line); }
+  tr.need-check td.status { font-weight:bold; color:#8a4b00; }
+  tr.need-check td.status::before { content:"⚠ "; }
+  .count .warn { background:var(--warn-bg); border:1px solid var(--warn-line); border-radius:4px; padding:0 6px; color:#8a4b00; }
   .empty { color:var(--muted); border:1px dashed var(--line); border-radius:6px; padding:16px; text-align:center; }
   .error { color:#a12a1a; font-weight:bold; margin:8px 0; }
   .error:empty { display:none; }
@@ -229,7 +233,10 @@ function renderResult(results) {
   var okCount = results.filter(function (r) { return r.상태 === STATUS_OK; }).length;
   area.textContent = '';
   var summary = document.createElement('p'); summary.className = 'count'; summary.id = 'result-summary';
-  summary.textContent = '매칭 ' + okCount + '건 / 확인 필요 ' + (results.length - okCount) + '건';
+  summary.textContent = '매칭 ' + okCount + '건 / ';
+  var warn = document.createElement('span'); warn.className = 'warn';
+  warn.textContent = '확인 필요 ' + (results.length - okCount) + '건';
+  summary.appendChild(warn);
   area.appendChild(summary);
   var wrap = document.createElement('div'); wrap.className = 'table-wrap';
   var table = document.createElement('table'); table.id = 'result-table';
@@ -240,7 +247,11 @@ function renderResult(results) {
   results.forEach(function (r) {
     var tr = document.createElement('tr');
     if (r.상태 !== STATUS_OK) tr.className = 'need-check';
-    RESULT_COLS.forEach(function (c) { var td = document.createElement('td'); td.textContent = r[c[1]]; tr.appendChild(td); });
+    RESULT_COLS.forEach(function (c) {
+      var td = document.createElement('td'); td.textContent = r[c[1]];
+      if (c[1] === '상태') td.className = 'status';
+      tr.appendChild(td);
+    });
     tbody.appendChild(tr);
   });
   table.appendChild(tbody); wrap.appendChild(table); area.appendChild(wrap);

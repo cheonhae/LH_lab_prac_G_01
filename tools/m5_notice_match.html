@@ -27,6 +27,8 @@
   button:disabled { background:#ccc; border-color:#ccc; color:#666; }
   tr.need-check td { background:var(--warn-bg); }
   .empty { color:var(--muted); border:1px dashed var(--line); border-radius:6px; padding:16px; text-align:center; }
+  .error { color:#a12a1a; font-weight:bold; margin:8px 0; }
+  .error:empty { display:none; }
 </style>
 </head>
 <body>
@@ -42,6 +44,7 @@
         <p class="hint">열: 접수번호, 접수일, 사업명, 민원요지</p>
         <input type="file" id="file-complaints" accept=".csv,text/csv">
         <p class="count" id="count-complaints"></p>
+        <p class="error" id="error-complaints" role="alert"></p>
         <div class="table-wrap" id="preview-complaints"></div>
       </div>
       <div class="box">
@@ -49,10 +52,12 @@
         <p class="hint">열: 사업명, 공고구분, 게시일</p>
         <input type="file" id="file-notices" accept=".csv,text/csv">
         <p class="count" id="count-notices"></p>
+        <p class="error" id="error-notices" role="alert"></p>
         <div class="table-wrap" id="preview-notices"></div>
       </div>
     </div>
-    <p style="margin-top:16px"><button type="button" id="btn-match" disabled>매칭</button></p>
+    <p style="margin-top:16px"><button type="button" id="btn-match">매칭</button></p>
+    <p class="error" id="error-match" role="alert"></p>
   </section>
 
   <section id="screen-result">
@@ -144,6 +149,26 @@ function matchComplaints(complaintsData, noticesData) {
   });
 }
 
+// PRD 4절 입력 열.
+var REQUIRED_COLS = {
+  complaints: ['접수번호', '접수일', '사업명', '민원요지'],
+  notices: ['사업명', '공고구분', '게시일']
+};
+var MSG_BOTH_FILES = '민원대장과 공고 이력 파일을 모두 넣어 주세요';
+var MSG_NO_ROWS = '행이 없습니다';
+
+// 읽은 CSV를 검사해 오류 문구 목록을 돌려준다. 빈 목록이면 통과.
+function checkInput(kind, data) {
+  var errors = [];
+  var header = data.header.map(function (h) { return h.trim(); });
+  if (header.length) {
+    var missing = REQUIRED_COLS[kind].filter(function (c) { return header.indexOf(c) < 0; });
+    if (missing.length) errors.push('없는 열: ' + missing.join(', ') + ' (필요한 열: ' + REQUIRED_COLS[kind].join(', ') + ')');
+  }
+  if (!data.rows.length) errors.push(MSG_NO_ROWS);
+  return errors;
+}
+
 var PREVIEW_ROWS = 5;
 var loaded = { complaints: null, notices: null };
 
@@ -182,7 +207,8 @@ function bindInput(kind) {
     reader.onload = function () {
       loaded[kind] = parseCsv(String(reader.result));
       renderPreview(kind, file.name, loaded[kind]);
-      document.getElementById('btn-match').disabled = !(loaded.complaints && loaded.notices);
+      document.getElementById('error-' + kind).textContent = checkInput(kind, loaded[kind]).join(' / ');
+      document.getElementById('error-match').textContent = '';
     };
     reader.readAsText(file, 'UTF-8');
   });
@@ -217,7 +243,15 @@ if (typeof document !== 'undefined') {
   bindInput('complaints');
   bindInput('notices');
   document.getElementById('btn-match').addEventListener('click', function () {
-    if (!loaded.complaints || !loaded.notices) return;
+    var msg = document.getElementById('error-match');
+    if (!loaded.complaints || !loaded.notices) { msg.textContent = MSG_BOTH_FILES; return; }
+    var bad = ['complaints', 'notices'].filter(function (k) { return checkInput(k, loaded[k]).length; });
+    if (bad.length) {
+      msg.textContent = '파일 오류가 있어 매칭하지 않았습니다. ' +
+        bad.map(function (k) { return (k === 'complaints' ? '민원대장' : '공고 이력') + ': ' + checkInput(k, loaded[k]).join(' / '); }).join(' · ');
+      return;
+    }
+    msg.textContent = '';
     renderResult(matchComplaints(loaded.complaints, loaded.notices));
   });
 }

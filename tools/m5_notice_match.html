@@ -25,6 +25,7 @@
   th { background:#eef1f4; }
   button { padding:8px 16px; font-size:1rem; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; }
   button:disabled { background:#ccc; border-color:#ccc; color:#666; }
+  tr.need-check td { background:var(--warn-bg); }
   .empty { color:var(--muted); border:1px dashed var(--line); border-radius:6px; padding:16px; text-align:center; }
 </style>
 </head>
@@ -56,7 +57,7 @@
 
   <section id="screen-result">
     <h2>2. 매칭 결과</h2>
-    <div class="empty">매칭 결과가 여기에 표시됩니다.</div>
+    <div id="result-area"><div class="empty">매칭 결과가 여기에 표시됩니다.</div></div>
   </section>
 
   <section id="screen-backup">
@@ -88,6 +89,59 @@ function parseCsv(text) {
   if (field !== '' || row.length) { row.push(field); records.push(row); }
   records = records.filter(function (r) { return r.some(function (v) { return v.trim() !== ''; }); });
   return { header: records.length ? records[0] : [], rows: records.slice(1) };
+}
+
+// YYYY-MM-DD 형식이고 실제 있는 날짜인지 본다.
+function isValidDate(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  var p = s.split('-').map(Number);
+  var d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+  return d.getUTCFullYear() === p[0] && d.getUTCMonth() === p[1] - 1 && d.getUTCDate() === p[2];
+}
+
+var STATUS_OK = '담당 검토 후 확정';
+var REASON = {
+  date: '확인 필요: 날짜 형식 오류',
+  noProject: '확인 필요: 공고 이력에 해당 사업 없음',
+  sameDay: '확인 필요: 접수일과 같은 날 게시된 공고 있음',
+  noPrior: '확인 필요: 접수일 전 게시된 공고 없음'
+};
+
+// 머리행 이름으로 열 위치를 찾아 행을 객체로 바꾼다. 값은 앞뒤 공백만 제거한다.
+function toObjects(data, cols) {
+  var idx = cols.map(function (c) { return data.header.map(function (h) { return h.trim(); }).indexOf(c); });
+  return data.rows.map(function (r) {
+    var o = {};
+    cols.forEach(function (c, k) { o[c] = idx[k] < 0 ? '' : String(r[idx[k]] == null ? '' : r[idx[k]]).trim(); });
+    return o;
+  });
+}
+
+// PRD 3절 매칭 규칙. 민원마다 { 접수번호, 접수일, 사업명, 적용공고, 근거, 상태 }를 돌려준다.
+function matchComplaints(complaintsData, noticesData) {
+  var complaints = toObjects(complaintsData, ['접수번호', '접수일', '사업명']);
+  var notices = toObjects(noticesData, ['사업명', '공고구분', '게시일']);
+  return complaints.map(function (c) {
+    var out = { 접수번호: c.접수번호, 접수일: c.접수일, 사업명: c.사업명, 적용공고: '', 근거: '', 상태: '' };
+    var same = notices.filter(function (n) { return n.사업명 === c.사업명; });
+    if (!isValidDate(c.접수일) || same.some(function (n) { return !isValidDate(n.게시일); })) {
+      out.상태 = REASON.date; return out;
+    }
+    if (!same.length) { out.상태 = REASON.noProject; return out; }
+    if (same.some(function (n) { return n.게시일 === c.접수일; })) { out.상태 = REASON.sameDay; return out; }
+    var before = same.filter(function (n) { return n.게시일 < c.접수일; })
+      .sort(function (a, b) { return a.게시일 < b.게시일 ? -1 : a.게시일 > b.게시일 ? 1 : 0; });
+    if (!before.length) { out.상태 = REASON.noPrior; return out; }
+    var pick = before[before.length - 1];
+    var after = same.filter(function (n) { return n.게시일 > c.접수일; })
+      .sort(function (a, b) { return a.게시일 < b.게시일 ? -1 : a.게시일 > b.게시일 ? 1 : 0; });
+    out.적용공고 = pick.공고구분;
+    out.근거 = after.length
+      ? '접수일 당시 유효 — ' + after[0].공고구분 + '는 ' + after[0].게시일 + ' 게시'
+      : pick.공고구분 + ', ' + pick.게시일 + ' 게시';
+    out.상태 = STATUS_OK;
+    return out;
+  });
 }
 
 var PREVIEW_ROWS = 5;
@@ -128,14 +182,44 @@ function bindInput(kind) {
     reader.onload = function () {
       loaded[kind] = parseCsv(String(reader.result));
       renderPreview(kind, file.name, loaded[kind]);
+      document.getElementById('btn-match').disabled = !(loaded.complaints && loaded.notices);
     };
     reader.readAsText(file, 'UTF-8');
   });
 }
 
+var RESULT_COLS = [['접수번호', '접수번호'], ['접수일', '접수일'], ['사업명', '사업명'], ['적용 공고', '적용공고'], ['근거', '근거'], ['상태', '상태']];
+
+// 건수 요약과 결과 표를 그린다. 값은 textContent로만 넣는다.
+function renderResult(results) {
+  var area = document.getElementById('result-area');
+  var okCount = results.filter(function (r) { return r.상태 === STATUS_OK; }).length;
+  area.textContent = '';
+  var summary = document.createElement('p'); summary.className = 'count'; summary.id = 'result-summary';
+  summary.textContent = '매칭 ' + okCount + '건 / 확인 필요 ' + (results.length - okCount) + '건';
+  area.appendChild(summary);
+  var wrap = document.createElement('div'); wrap.className = 'table-wrap';
+  var table = document.createElement('table'); table.id = 'result-table';
+  var thead = document.createElement('thead'); var hr = document.createElement('tr');
+  RESULT_COLS.forEach(function (c) { var th = document.createElement('th'); th.textContent = c[0]; hr.appendChild(th); });
+  thead.appendChild(hr); table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  results.forEach(function (r) {
+    var tr = document.createElement('tr');
+    if (r.상태 !== STATUS_OK) tr.className = 'need-check';
+    RESULT_COLS.forEach(function (c) { var td = document.createElement('td'); td.textContent = r[c[1]]; tr.appendChild(td); });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody); wrap.appendChild(table); area.appendChild(wrap);
+}
+
 if (typeof document !== 'undefined') {
   bindInput('complaints');
   bindInput('notices');
+  document.getElementById('btn-match').addEventListener('click', function () {
+    if (!loaded.complaints || !loaded.notices) return;
+    renderResult(matchComplaints(loaded.complaints, loaded.notices));
+  });
 }
 </script>
 </body>
